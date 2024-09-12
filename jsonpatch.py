@@ -281,7 +281,9 @@ class AddOperation(PatchOperation):
 
         subobj, part = self.pointer.to_last(obj)
 
-        if isinstance(subobj, MutableSequence):
+        if part is None:
+            obj = value  # we're replacing the root
+        elif isinstance(subobj, MutableSequence):
             if part == '-':
                 subobj.append(value)  # pylint: disable=E1103
 
@@ -292,16 +294,13 @@ class AddOperation(PatchOperation):
                 subobj.insert(part, value)  # pylint: disable=E1103
 
         elif isinstance(subobj, MutableMapping):
-            if part is None:
-                obj = value  # we're replacing the root
-            else:
-                subobj[part] = value
-
+            subobj[part] = value
         else:
             if part is None:
                 raise TypeError("invalid document type {0}".format(type(subobj)))
             else:
                 raise JsonPatchConflict("unable to fully resolve json pointer {0}, part {1}".format(self.location, part))
+
         return obj
 
     def _on_undo_remove(self, path, key):
@@ -624,6 +623,7 @@ class JsonPatch(object):
         """
         json_loader = loads or cls.json_loader
         patch = json_loader(patch_str)
+
         return cls(patch, pointer_cls=pointer_cls)
 
     @classmethod
@@ -859,10 +859,9 @@ class DiffBuilder(object):
         }, pointer_cls=self.pointer_cls))
 
     def _compare_dicts(self, path, src, dst):
-        src_keys = set(src.keys())
-        dst_keys = set(dst.keys())
-        added_keys = dst_keys - src_keys
-        removed_keys = src_keys - dst_keys
+        added_keys = [key for key in dst.keys() if key not in src.keys()]
+        removed_keys = [key for key in src.keys() if key not in dst.keys()]
+        intersection = [key for key in src.keys() if key in dst.keys()]
 
         for key in removed_keys:
             self._item_removed(path, str(key), src[key])
@@ -870,7 +869,7 @@ class DiffBuilder(object):
         for key in added_keys:
             self._item_added(path, str(key), dst[key])
 
-        for key in src_keys & dst_keys:
+        for key in reversed(intersection):
             self._compare_values(path, key, src[key], dst[key])
 
     def _compare_lists(self, path, src, dst):

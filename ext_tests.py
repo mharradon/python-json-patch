@@ -38,37 +38,50 @@ import doctest
 import unittest
 import jsonpatch
 import sys
+import logging
 
 
 class TestCaseTemplate(unittest.TestCase):
     """ A generic test case for running external tests """
 
     def _test(self, test):
-        if not 'doc' in test or not 'patch' in test:
-            # incomplete
-            return
+        try:
+            if not 'doc' in test or not 'patch' in test:
+                # incomplete
+                return
 
-        if test.get('disabled', False):
-            # test is disabled
-            return
+            if test.get('disabled', False):
+                # test is disabled
+                return
 
-        if 'error' in test:
-            self.assertRaises(
-                (jsonpatch.JsonPatchException, jsonpatch.JsonPointerException),
-                jsonpatch.apply_patch, test['doc'], test['patch']
-                )
+            if 'error' in test:
+                self.assertRaises(
+                    (jsonpatch.JsonPatchException, jsonpatch.JsonPointerException),
+                    jsonpatch.apply_patch, test['doc'], test['patch']
+                    )
 
-        else:
-            try:
-                res = jsonpatch.apply_patch(test['doc'], test['patch'])
-            except jsonpatch.JsonPatchException as jpe:
-                raise Exception(test.get('comment', '')) from jpe
+            else:
+                try:
+                    res = jsonpatch.apply_patch(test['doc'], test['patch'])
+                except jsonpatch.JsonPatchException as jpe:
+                    raise Exception(test.get('comment', '')) from jpe
 
-            # if there is no 'expected' we only verify that applying the patch
-            # does not raise an exception
-            if 'expected' in test:
-                self.assertEqual(res, test['expected'], test.get('comment', ''))
+                # if there is no 'expected' we only verify that applying the patch
+                # does not raise an exception
+                if 'expected' in test:
+                    self.assertEqual(res, test['expected'], test.get('comment', ''))
+        except Exception as E:
+            logging.error(test)
+            raise E
 
+class AdditionalTestCase(unittest.TestCase):
+    def test_loop(self):
+        src_obj = {'a': [{'id': [1]}, {'id': [2]}], 'b': [{'id': 5}]}
+        tgt_obj = {'a': [{'id': []}, {'id': [1]}], 'b': [{'id': 5, 'newKey': 2}]}
+
+        patch = jsonpatch.make_patch(src_obj, tgt_obj)
+        tgt_obj_check = jsonpatch.apply_patch(src_obj, patch)
+        self.assertEqual(tgt_obj, tgt_obj_check)
 
 def make_test_case(tests):
 
@@ -100,8 +113,9 @@ def get_suite(filenames):
             cls = make_test_case(tests)
             suite.addTest(unittest.makeSuite(cls))
 
-    return suite
+    suite.addTest(unittest.makeSuite(AdditionalTestCase))
 
+    return suite
 
 suite = get_suite(sys.argv[1:])
 
